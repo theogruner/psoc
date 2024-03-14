@@ -18,3 +18,9 @@ Implements a policy optimization technique via Markovian score climbing
  
     python examples/feedback/rb_csmc_pendulum.py
     
+ Examples for ILEQG and RAT-ILQR on a simple linear dynamics environment
+   
+   ```
+   python examples/rat_ilqr/ileqg_const_linear.py
+   python examples/rat_ilqr/rat_ilqr_const_linear.py
+   ```
