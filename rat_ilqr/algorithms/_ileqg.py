@@ -150,9 +150,15 @@ def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
             + s_prev
             + 0.5 * dl_k.transpose() @ (H_k @ dl_k)
             + dl_k.transpose() @ g_k
-            + 0.5 / tempering * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
-            + 0.5 / tempering * s_vec_prev.transpose() @ (M_k_inv @ s_vec)
         )
+        residual = jax.lax.cond(
+            tempering == 0.0,
+            lambda: 0.5 * jnp.trace(W_k @ S_prev),
+            lambda: jax.lax.div(0.5, tempering)
+            * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
+            + jax.lax.div(0.5, tempering) * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
+        )
+        s_k += residual
         s_k_vec = (
             q_vec_k
             + A_k.transpose() @ (D_k @ s_vec_prev)
@@ -210,9 +216,15 @@ def _eval_cost_to_go(q, q_vec, Q, r, R, P, A, B, W, L, dl, tempering: float):
             + s_prev
             + 0.5 * dl_k.transpose() @ (H_k @ dl_k)
             + dl_k.transpose() @ g_k
-            + 0.5 / tempering * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
-            + 0.5 / tempering * s_vec_prev.transpose() @ (M_k_inv @ s_vec)
         )
+        residual = jax.lax.cond(
+            tempering == 0.0,
+            lambda: 0.5 * jnp.trace(W_k @ S_prev),
+            lambda: jax.lax.div(0.5, tempering)
+            * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
+            + jax.lax.div(0.5, tempering) * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
+        )
+        s_k += residual
         s_k_vec = (
             q_vec_k
             + A_k.transpose() @ (D_k @ s_vec_prev)

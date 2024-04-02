@@ -44,7 +44,7 @@ def make_ileqg_problem():
     return dynamics.mean, dynamics.sample, cost, terminal_cost
 
 
-def create_state(action_dim, nb_steps, init_tempering, sigma, W, make_ileqg_problem, d):
+def create_state(action_dim, nb_steps, init_tempering, sigma, make_ileqg_problem, d):
     transition, _, _, _ = make_ileqg_problem()
 
     def step(x_k, u_k):
@@ -55,6 +55,7 @@ def create_state(action_dim, nb_steps, init_tempering, sigma, W, make_ileqg_prob
     x_init = jnp.array([1.0, 2.0])
     _, x_nominal = jax.lax.scan(step, x_init, u)
     x_nominal = jnp.insert(x_nominal, 0, x_init, 0)
+    W = jnp.tile(dynamics.stddev * jnp.eye(2)[None, :], (nb_steps, 1, 1))
 
     return RATILQRState.create(
         x_nominal=x_nominal,
@@ -75,10 +76,7 @@ def main():
     nb_iter, nb_ileqg_iter, nb_cem_iter = 1, 1, 10
     d = 1e-9
     init_tempering, init_std = 1e-1, 0.1
-    W = jnp.tile(1e-2 * jnp.eye(2)[None, :], (nb_steps, 1, 1))
-    state = create_state(
-        1, nb_steps, init_tempering, init_std, W, make_ileqg_problem, d
-    )
+    state = create_state(1, nb_steps, init_tempering, init_std, make_ileqg_problem, d)
 
     train_key, inference_key = jr.split(key)
     state, _ = rat_ilqr(
