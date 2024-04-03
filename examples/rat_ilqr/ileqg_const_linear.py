@@ -47,7 +47,6 @@ def rollout(rng, state: ILEQGState, make_ileqg_problem):
 
 
 def make_ileqg_problem():
-
     cost = lambda x, u: -linear.reward(jnp.concatenate([x, u], -1), 1.0)
     terminal_cost = lambda x: 0.0
     return dynamics.mean, dynamics.sample, cost, terminal_cost
@@ -74,7 +73,7 @@ def main():
 
     nb_steps = 50
     nb_iter = 1
-    tempering = 1e-6  # 5e-2  # optimal 6e-2
+    tempering = 1e-8  # 5e-2  # optimal 6e-2
     mu = 1e-12
     state = create_state(1, nb_steps, tempering, make_ileqg_problem, mu)
     print(f"ILEQG for nu={tempering}")

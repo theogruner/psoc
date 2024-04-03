@@ -75,7 +75,7 @@ def _ileqg(state: ILEQGState, make_ileqg_problem):
     )
 
     # 3. Line search
-    l, cost_to_go = _line_search(
+    x_nominal, l, cost_to_go = _line_search(
         L,
         state.l,
         dl,
@@ -86,7 +86,7 @@ def _ileqg(state: ILEQGState, make_ileqg_problem):
         state.tempering,
     )
 
-    state = state.replace(L=L, l=l, cost_to_go=cost_to_go)
+    state = state.replace(x_nominal=x_nominal, L=L, l=l, cost_to_go=cost_to_go)
 
     return state, cost_to_go
 
@@ -106,6 +106,7 @@ def _local_approximation(x, u, make_ileqg_problem):
         return A_k, B_k, q_k, q_vec_k, Q_k, r_k, R_k, P_k
 
     A, B, q, q_vec, Q, r, R, P = jax.vmap(local_linearization)(x[:-1], u)
+
     # Calculate terminal reward
     terminal_state = x[-1]
 
@@ -122,12 +123,14 @@ def _local_approximation(x, u, make_ileqg_problem):
 
 
 def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
-    s = q[-1]
-    s_vec = q_vec[-1]
-    S = Q[-1]
+
     state_dim = W.shape[-1]
 
     def _update_gains(H_k, G_k, g_k):
+        # jax.debug.print(
+        #     "H positive definite: {h_pos}",
+        #     h_pos=jnp.all(jnp.linalg.eigvals(H_k + mu * jnp.eye(H_k.shape[-1])) > 0),
+        # )
         inverse_gain = jnp.linalg.inv(H_k + mu * jnp.eye(H_k.shape[-1]))
         L_k = -inverse_gain @ G_k
         dl_k = -inverse_gain @ g_k
@@ -154,11 +157,12 @@ def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
         residual = jax.lax.cond(
             tempering == 0.0,
             lambda: 0.5 * jnp.trace(W_k @ S_prev),
-            lambda: jax.lax.div(0.5, tempering)
-            * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
-            + jax.lax.div(0.5, tempering) * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
+            lambda: -jax.lax.div(0.5, tempering) * _logdet(W_k @ M_k)
+            + 0.5 * tempering * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
         )
         s_k += residual
+        jax.debug.print("{wk}", wk=-jax.lax.div(0.5, tempering) * _logdet(W_k @ M_k))
+
         s_k_vec = (
             q_vec_k
             + A_k.transpose() @ (D_k @ s_vec_prev)
@@ -176,6 +180,9 @@ def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
 
         return (s_k, s_k_vec, S_k), (L_k, dl_k)
 
+    s = q[-1]
+    s_vec = q_vec[-1]
+    S = Q[-1]
     _, (L, dl) = jax.lax.scan(
         body,
         (s, s_vec, S),
@@ -217,12 +224,12 @@ def _eval_cost_to_go(q, q_vec, Q, r, R, P, A, B, W, L, dl, tempering: float):
             + 0.5 * dl_k.transpose() @ (H_k @ dl_k)
             + dl_k.transpose() @ g_k
         )
+        # jax.debug.print("{sk}", sk=q_k + s_prev)
         residual = jax.lax.cond(
             tempering == 0.0,
             lambda: 0.5 * jnp.trace(W_k @ S_prev),
-            lambda: jax.lax.div(0.5, tempering)
-            * _logdet(jnp.eye(state_dim) - tempering * W_k @ S_prev)
-            + jax.lax.div(0.5, tempering) * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
+            lambda: -jax.lax.div(0.5, tempering) * _logdet(W_k @ M_k)
+            + 0.5 * tempering * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
         )
         s_k += residual
         s_k_vec = (
@@ -277,7 +284,7 @@ def _line_search(
     dynamics, _, _, _ = make_ileqg_problem()
     epsilon = 1.0
 
-    def _candidate_trajectory(L, l, dl, norm_x, eps) -> Tuple[jax.Array, jax.Array]:
+    def _candidate_trajectory(eps) -> Tuple[jax.Array, jax.Array]:
 
         def _step(x_k, val):
             L_k, l_k, dl_k, nominal_x_k = val
@@ -286,21 +293,22 @@ def _line_search(
             return next_x, (next_x, u_k)
 
         _, (trajectory, controls) = jax.lax.scan(
-            _step, norm_x[0], (L, l, dl, norm_x[:-1])
+            _step, x_nominal[0], (L, l, dl, x_nominal[:-1])
         )
-        trajectory = jnp.insert(trajectory, 0, norm_x[0], 0)
+        trajectory = jnp.insert(trajectory, 0, x_nominal[0], 0)
         return trajectory, controls
 
     def cond(val):
-        cost_to_go, epsilon, i = val
+        cost_to_go, _, _, epsilon, i = val
+        # jax.debug.print("should terminate: {diff}", diff=cost_to_go < reference_cost)
         return jnp.logical_or(
             jnp.logical_and((i < max_steps), cost_to_go > reference_cost), i == 0
         )
 
     def body(val):
-        cost_to_go, epsilon, i = val
+        _, _, _, epsilon, i = val
         epsilon *= lam
-        x_candidate, u_candidate = _candidate_trajectory(L, l, dl, x_nominal, epsilon)
+        x_candidate, u_candidate = _candidate_trajectory(epsilon)
         q, q_vec, Q, r, R, P, A, B = _local_approximation(
             x_candidate, u_candidate, make_ileqg_problem
         )
@@ -308,14 +316,14 @@ def _line_search(
             q, q_vec, Q, r, R, P, A, B, W, L, jnp.zeros_like(u_candidate), tempering
         )
 
-        return cost_to_go, epsilon, i + 1
+        return cost_to_go, x_candidate, u_candidate, epsilon, i + 1
 
-    cost_to_go, epsilon, i = jax.lax.while_loop(
+    cost_to_go, x_nominal, l, epsilon, i = jax.lax.while_loop(
         cond,
         body,
-        (0.0, epsilon / lam, 0),
+        (jnp.inf, x_nominal, l, epsilon / lam, 0),
     )
-    return l + epsilon * dl, cost_to_go
+    return x_nominal, l, cost_to_go
 
 
 def _logdet(m):
