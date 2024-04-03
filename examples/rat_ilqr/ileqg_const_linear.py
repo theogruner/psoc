@@ -73,7 +73,7 @@ def main():
 
     nb_steps = 50
     nb_iter = 1
-    tempering = 1e-8  # 5e-2  # optimal 6e-2
+    tempering = 1e-2  # 5e-2  # optimal 6e-2
     mu = 1e-12
     state = create_state(1, nb_steps, tempering, make_ileqg_problem, mu)
     print(f"ILEQG for nu={tempering}")

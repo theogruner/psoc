@@ -127,10 +127,6 @@ def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
     state_dim = W.shape[-1]
 
     def _update_gains(H_k, G_k, g_k):
-        # jax.debug.print(
-        #     "H positive definite: {h_pos}",
-        #     h_pos=jnp.all(jnp.linalg.eigvals(H_k + mu * jnp.eye(H_k.shape[-1])) > 0),
-        # )
         inverse_gain = jnp.linalg.inv(H_k + mu * jnp.eye(H_k.shape[-1]))
         L_k = -inverse_gain @ G_k
         dl_k = -inverse_gain @ g_k
@@ -161,7 +157,6 @@ def _backward_pass(q, q_vec, Q, r, R, P, A, B, W, tempering: float, mu: float):
             + 0.5 * tempering * s_vec_prev.transpose() @ (M_k_inv @ s_vec),
         )
         s_k += residual
-        jax.debug.print("{wk}", wk=-jax.lax.div(0.5, tempering) * _logdet(W_k @ M_k))
 
         s_k_vec = (
             q_vec_k
@@ -224,7 +219,6 @@ def _eval_cost_to_go(q, q_vec, Q, r, R, P, A, B, W, L, dl, tempering: float):
             + 0.5 * dl_k.transpose() @ (H_k @ dl_k)
             + dl_k.transpose() @ g_k
         )
-        # jax.debug.print("{sk}", sk=q_k + s_prev)
         residual = jax.lax.cond(
             tempering == 0.0,
             lambda: 0.5 * jnp.trace(W_k @ S_prev),
@@ -300,7 +294,6 @@ def _line_search(
 
     def cond(val):
         cost_to_go, _, _, epsilon, i = val
-        # jax.debug.print("should terminate: {diff}", diff=cost_to_go < reference_cost)
         return jnp.logical_or(
             jnp.logical_and((i < max_steps), cost_to_go > reference_cost), i == 0
         )
